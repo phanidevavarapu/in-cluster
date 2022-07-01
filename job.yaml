@@ -1,0 +1,17 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: collector-job
+  namespace: opentelemetry-operator-system
+spec:
+  template:
+    metadata:
+      name: inspect
+    spec:
+      serviceAccountName: opentelemetry-operator-controller-manager
+      containers:
+        - name: inspect
+          image: hello:2
+          imagePullPolicy: Never
+      restartPolicy: Never
+  backoffLimit: 4
