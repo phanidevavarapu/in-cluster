@@ -5,10 +5,9 @@ go 1.18
 require (
 	github.com/knadh/koanf v1.4.2
 	github.com/oklog/ulid/v2 v2.0.2
-	github.com/open-telemetry/opamp-go v0.3.0
+	github.com/open-telemetry/opamp-go v0.1.0
 	github.com/open-telemetry/opentelemetry-operator v1.51.0
 	go.uber.org/zap v1.21.0
-	google.golang.org/protobuf v1.28.0
 	k8s.io/api v0.24.2
 	k8s.io/apimachinery v0.24.2
 	k8s.io/client-go v0.24.2
@@ -65,6 +64,7 @@ require (
 	golang.org/x/time v0.0.0-20220210224613-90d013bbcef8 // indirect
 	gomodules.xyz/jsonpatch/v2 v2.2.0 // indirect
 	google.golang.org/appengine v1.6.7 // indirect
+	google.golang.org/protobuf v1.28.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.0 // indirect

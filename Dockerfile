@@ -18,9 +18,9 @@ RUN CGO_ENABLED=0 GOOS=linux GO111MODULE=on go build -a -o job main.go
 
 # Use distroless as minimal base image to package the manager binary
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
-FROM gcr.io/distroless/static:nonroot
+FROM alpine:3
 WORKDIR /
 COPY --from=builder /workspace/job .
+COPY ./entrypoint.sh /
 USER 65532:65532
-
-ENTRYPOINT ["/job"]
+CMD ["/bin/sh","/entrypoint.sh"]
