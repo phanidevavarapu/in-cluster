@@ -66,6 +66,12 @@ func NewAgent(logger types.Logger, agentType string, agentVersion string) *Agent
 		agentVersion:    agentVersion,
 		k8sAPIClient:    kube_api.NewClient(),
 	}
+	if otelCol, err := agent.k8sAPIClient.GetOtelCollectors(); err == nil {
+		agent.effectiveConfig = otelCol.Spec.Config
+		logger.Debugf("data: %s", agent.effectiveConfig)
+	} else {
+		logger.Errorf("%v", err)
+	}
 
 	agent.createAgentIdentity()
 	agent.logger.Debugf("Agent starting, id=%v, type=%s, version=%s.",
@@ -177,7 +183,7 @@ func (agent *Agent) updateAgentIdentity(instanceId ulid.ULID) {
 
 func (agent *Agent) loadLocalConfig() {
 	var k = koanf.New(".")
-	_ = k.Load(rawbytes.Provider([]byte(localConfig)), yaml.Parser())
+	_ = k.Load(rawbytes.Provider([]byte(agent.effectiveConfig)), yaml.Parser())
 
 	effectiveConfigBytes, err := k.Marshal(yaml.Parser())
 	if err != nil {
@@ -227,7 +233,7 @@ func (agent *Agent) applyRemoteConfig(config *protobufs.AgentRemoteConfig) (conf
 
 	// Begin with local config. We will later merge received configs on top of it.
 	var k = koanf.New(".")
-	if err := k.Load(rawbytes.Provider([]byte(localConfig)), yaml.Parser()); err != nil {
+	if err := k.Load(rawbytes.Provider([]byte(agent.effectiveConfig)), yaml.Parser()); err != nil {
 		return false, err
 	}
 
