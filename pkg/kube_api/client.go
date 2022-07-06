@@ -24,9 +24,11 @@ import (
 
 type K8sAPIClient interface {
 	Orchestrate(cfg string) error
+	GetOtelCollectors() (*otelv1alpha1.OpenTelemetryCollector, error)
 }
 
 type client struct {
+	cf       *rest.Config
 	resource dynamic.NamespaceableResourceInterface
 }
 
@@ -45,6 +47,7 @@ func NewClient() K8sAPIClient {
 		Resource: "opentelemetrycollectors",
 	}
 	return &client{
+		cf: cf,
 		resource: dynamicClient.
 			Resource(deploymentRes),
 	}
@@ -65,6 +68,14 @@ func (c *client) Orchestrate(cfg string) error {
 	return nil
 }
 
+func (c *client) GetOtelCollectors() (*otelv1alpha1.OpenTelemetryCollector, error) {
+	result, getErr := c.resource.Namespace(apiv1.NamespaceAll).List(context.TODO(), metav1.ListOptions{})
+	if getErr != nil {
+		panic(fmt.Errorf("failed to get latest version of Deployment: %v", getErr))
+	}
+	return convertUnstructuredToOtelCollector(&result.Items[0])
+}
+
 func (c *client) create(cfg string) error {
 
 	otelCol := &otelv1alpha1.OpenTelemetryCollector{
@@ -83,16 +94,9 @@ func (c *client) create(cfg string) error {
 			Resources:       apiv1.ResourceRequirements{},
 		},
 	}
-	var myMap map[string]interface{}
-	data, err := json.Marshal(otelCol)
+	deployment, err := convertOtelCollectorToUnstructured(otelCol)
 	if err != nil {
-		return nil
-	}
-	if err = json.Unmarshal(data, &myMap); err != nil {
-		return nil
-	}
-	deployment := &unstructured.Unstructured{
-		Object: myMap,
+		return err
 	}
 	// Create Deployment
 	fmt.Println("Creating deployment...")
@@ -110,25 +114,15 @@ func int32Ptr(i int32) *int32 { return &i }
 
 func (c *client) update(deployment *unstructured.Unstructured, cfg string) error {
 	fmt.Println("Update Resource")
-	data, err := json.Marshal(deployment.Object)
+	otelCol, err := convertUnstructuredToOtelCollector(deployment)
 	if err != nil {
-		return err
-	}
-	otelCol := &otelv1alpha1.OpenTelemetryCollector{}
-	if err = json.Unmarshal(data, otelCol); err != nil {
 		return err
 	}
 	otelCol.Spec.Config = cfg
-	var myMap map[string]interface{}
-	data, err = json.Marshal(otelCol)
+
+	deploymentUpdate, err := convertOtelCollectorToUnstructured(otelCol)
 	if err != nil {
 		return nil
-	}
-	if err = json.Unmarshal(data, &myMap); err != nil {
-		return nil
-	}
-	deploymentUpdate := &unstructured.Unstructured{
-		Object: myMap,
 	}
 	_, err = c.resource.
 		Namespace(apiv1.NamespaceDefault).
@@ -147,4 +141,30 @@ func (c *client) get() (*unstructured.Unstructured, error) {
 		},
 	}
 	return c.resource.Namespace(apiv1.NamespaceDefault).Get(context.TODO(), "hello-world", options)
+}
+
+func convertOtelCollectorToUnstructured(otelCol *otelv1alpha1.OpenTelemetryCollector) (*unstructured.Unstructured, error) {
+	var myMap map[string]interface{}
+	data, err := json.Marshal(otelCol)
+	if err != nil {
+		return nil, err
+	}
+	if err = json.Unmarshal(data, &myMap); err != nil {
+		return nil, err
+	}
+	return &unstructured.Unstructured{
+		Object: myMap,
+	}, nil
+}
+
+func convertUnstructuredToOtelCollector(deployment *unstructured.Unstructured) (*otelv1alpha1.OpenTelemetryCollector, error) {
+	data, err := json.Marshal(deployment.Object)
+	if err != nil {
+		return nil, err
+	}
+	otelCol := &otelv1alpha1.OpenTelemetryCollector{}
+	if err = json.Unmarshal(data, otelCol); err != nil {
+		return nil, err
+	}
+	return otelCol, nil
 }

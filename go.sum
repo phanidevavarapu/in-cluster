@@ -415,8 +415,8 @@ github.com/onsi/gomega v0.0.0-20170829124025-dcabb60a477c/go.mod h1:C1qb7wdrVGGV
 github.com/onsi/gomega v1.7.1/go.mod h1:XdKZgCCFLUoM/7CFJVPcG8C1xQ1AJ0vpAezJrB7JYyY=
 github.com/onsi/gomega v1.10.1/go.mod h1:iN09h71vgCQne3DLsj+A5owkum+a2tYe+TOCB1ybHNo=
 github.com/onsi/gomega v1.17.0 h1:9Luw4uT5HTjHTN8+aNcSThgH1vdXnmdJ8xIfZ4wyTRE=
-github.com/open-telemetry/opamp-go v0.3.0 h1:/JNn5MBwFws+elCaWOKs/AU8N8xvlcc85WXB5bHr/sk=
-github.com/open-telemetry/opamp-go v0.3.0/go.mod h1:IMdeuHGVc5CjKSu5/oNV0o+UmiXuahoHvoZ4GOmAI9M=
+github.com/open-telemetry/opamp-go v0.1.0 h1:VEeGUZG54X1P6Sabl4Q61yClDmVuDfo/Xsmh/SEFPoo=
+github.com/open-telemetry/opamp-go v0.1.0/go.mod h1:IMdeuHGVc5CjKSu5/oNV0o+UmiXuahoHvoZ4GOmAI9M=
 github.com/open-telemetry/opentelemetry-operator v1.51.0 h1:mf6E24jBnv0JvxUH2nOujiqShwA7kJcCFbhd2vdMyQQ=
 github.com/open-telemetry/opentelemetry-operator v1.51.0/go.mod h1:2oXRmTlK6/4gc+ipK94KKHEEf6h3PWh2NiG3doAQnwo=
 github.com/opentracing/opentracing-go v1.1.0/go.mod h1:UkNAQd3GIcIGf0SeVgPpRdFStlNbqXla1AfSYxPUl2o=

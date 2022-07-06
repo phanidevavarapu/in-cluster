@@ -11,7 +11,7 @@ spec:
       serviceAccountName: opentelemetry-operator-controller-manager
       containers:
         - name: inspect
-          image: hello:6
+          image: opamp-client:3
           imagePullPolicy: Never
       restartPolicy: Never
   backoffLimit: 4
