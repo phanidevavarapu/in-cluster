@@ -1,0 +1,30 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: opamp-client
+  namespace: opentelemetry-operator-system
+  labels:
+    app: opamp-client
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: opamp-client
+  template:
+    metadata:
+      name: inspect
+      labels:
+        app: opamp-client
+    spec:
+      serviceAccountName: opentelemetry-operator-controller-manager
+      containers:
+        - name: inspect
+          image: op-client:0.1
+          imagePullPolicy: Never
+          livenessProbe:
+            exec:
+              command:
+                - cat
+                - /tmp/healthy
+            initialDelaySeconds: 10
+            periodSeconds: 10
