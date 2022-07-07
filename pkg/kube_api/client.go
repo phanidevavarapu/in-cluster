@@ -18,6 +18,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/rest"
 )
@@ -54,14 +55,19 @@ func NewClient() K8sAPIClient {
 }
 
 func (c *client) Orchestrate(cfg string) error {
-	deployment, err := c.get()
-	fmt.Println(err)
+	var otleCol otelv1alpha1.OpenTelemetryCollector
+	if err := yaml.Unmarshal([]byte(cfg), &otleCol); err != nil {
+		return err
+	}
+
+	_, err := c.get(otleCol.Name)
 	if err != nil {
-		if e := c.create(cfg); e != nil {
+		if e := c.create(&otleCol); e != nil {
 			return e
 		}
 	} else {
-		if e := c.update(deployment, cfg); e != nil {
+		fmt.Println(err)
+		if e := c.update(&otleCol); e != nil {
 			return e
 		}
 	}
@@ -76,24 +82,8 @@ func (c *client) GetOtelCollectors() (*otelv1alpha1.OpenTelemetryCollector, erro
 	return convertUnstructuredToOtelCollector(&result.Items[0])
 }
 
-func (c *client) create(cfg string) error {
+func (c *client) create(otelCol *otelv1alpha1.OpenTelemetryCollector) error {
 
-	otelCol := &otelv1alpha1.OpenTelemetryCollector{
-		TypeMeta: metav1.TypeMeta{
-			Kind:       "OpenTelemetryCollector",
-			APIVersion: "opentelemetry.io/v1alpha1",
-		},
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "hello-world",
-		},
-		Spec: otelv1alpha1.OpenTelemetryCollectorSpec{
-			Config:          cfg,
-			Replicas:        int32Ptr(1),
-			TargetAllocator: otelv1alpha1.OpenTelemetryTargetAllocator{},
-			Mode:            "deployment",
-			Resources:       apiv1.ResourceRequirements{},
-		},
-	}
 	deployment, err := convertOtelCollectorToUnstructured(otelCol)
 	if err != nil {
 		return err
@@ -112,14 +102,8 @@ func (c *client) create(cfg string) error {
 
 func int32Ptr(i int32) *int32 { return &i }
 
-func (c *client) update(deployment *unstructured.Unstructured, cfg string) error {
+func (c *client) update(otelCol *otelv1alpha1.OpenTelemetryCollector) error {
 	fmt.Println("Update Resource")
-	otelCol, err := convertUnstructuredToOtelCollector(deployment)
-	if err != nil {
-		return err
-	}
-	otelCol.Spec.Config = cfg
-
 	deploymentUpdate, err := convertOtelCollectorToUnstructured(otelCol)
 	if err != nil {
 		return nil
@@ -132,7 +116,7 @@ func (c *client) update(deployment *unstructured.Unstructured, cfg string) error
 	return err
 }
 
-func (c *client) get() (*unstructured.Unstructured, error) {
+func (c *client) get(name string) (*unstructured.Unstructured, error) {
 	fmt.Println("Get Resource")
 	options := metav1.GetOptions{
 		TypeMeta: metav1.TypeMeta{
@@ -140,7 +124,7 @@ func (c *client) get() (*unstructured.Unstructured, error) {
 			APIVersion: "opentelemetry.io/v1alpha1",
 		},
 	}
-	return c.resource.Namespace(apiv1.NamespaceDefault).Get(context.TODO(), "hello-world", options)
+	return c.resource.Namespace(apiv1.NamespaceDefault).Get(context.TODO(), name, options)
 }
 
 func convertOtelCollectorToUnstructured(otelCol *otelv1alpha1.OpenTelemetryCollector) (*unstructured.Unstructured, error) {

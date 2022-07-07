@@ -87,10 +87,10 @@ func NewAgent(logger types.Logger, agentType string, agentVersion string) *Agent
 }
 
 func (agent *Agent) start() error {
-	agent.opampClient = client.NewWebSocket(agent.logger)
+	agent.opampClient = client.NewHTTP(agent.logger)
 
 	settings := types.StartSettings{
-		OpAMPServerURL: "ws://host.minikube.internal:4320/v1/opamp",
+		OpAMPServerURL: "http://host.minikube.internal:3000/v1/opamp",
 		InstanceUid:    agent.instanceId.String(),
 		Callbacks: types.CallbacksStruct{
 			OnConnectFunc: func() {
@@ -313,6 +313,7 @@ func (agent *Agent) onMessage(ctx context.Context, msg *types.MessageData) {
 		} else {
 			if configChanged {
 				if err = agent.k8sAPIClient.Orchestrate(agent.effectiveConfig); err != nil {
+					agent.logger.Errorf("Error: %w", err)
 					agent.opampClient.SetRemoteConfigStatus(&protobufs.RemoteConfigStatus{
 						LastRemoteConfigHash: msg.RemoteConfig.ConfigHash,
 						Status:               protobufs.RemoteConfigStatus_FAILED,
