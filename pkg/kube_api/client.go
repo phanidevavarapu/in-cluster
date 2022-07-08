@@ -12,6 +12,7 @@ package kube_api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	otelv1alpha1 "github.com/open-telemetry/opentelemetry-operator/apis/v1alpha1"
 	apiv1 "k8s.io/api/core/v1"
@@ -59,14 +60,15 @@ func (c *client) Orchestrate(cfg string) error {
 	if err := yaml.Unmarshal([]byte(cfg), &otleCol); err != nil {
 		return err
 	}
+	deployed, err := c.get(otleCol.Name)
 
-	_, err := c.get(otleCol.Name)
 	if err != nil {
 		if e := c.create(&otleCol); e != nil {
 			return e
 		}
 	} else {
-		fmt.Println(err)
+		otelDeployed, _ := convertUnstructuredToOtelCollector(deployed)
+		otleCol.ObjectMeta = otelDeployed.ObjectMeta
 		if e := c.update(&otleCol); e != nil {
 			return e
 		}
@@ -78,6 +80,9 @@ func (c *client) GetOtelCollectors() (*otelv1alpha1.OpenTelemetryCollector, erro
 	result, getErr := c.resource.Namespace(apiv1.NamespaceAll).List(context.TODO(), metav1.ListOptions{})
 	if getErr != nil {
 		panic(fmt.Errorf("failed to get latest version of Deployment: %v", getErr))
+	}
+	if len(result.Items) == 0 {
+		return nil, errors.New("no deployment found")
 	}
 	return convertUnstructuredToOtelCollector(&result.Items[0])
 }
