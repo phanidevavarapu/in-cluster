@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"in-cluster/pkg/kube_api"
 	"math/rand"
@@ -22,21 +23,21 @@ import (
 
 const localConfig = `
 exporters:
-  otlp:
-    endpoint: localhost:1111
+ otlp:
+   endpoint: localhost:1111
 
 receivers:
-  otlp:
-    protocols:
-      grpc: {}
-      http: {}
+ otlp:
+   protocols:
+     grpc: {}
+     http: {}
 
 service:
-  pipelines:
-    traces:
-      receivers: [otlp]
-      processors: []
-      exporters: [otlp]
+ pipelines:
+   traces:
+     receivers: [otlp]
+     processors: []
+     exporters: [otlp]
 `
 
 type Agent struct {
@@ -87,10 +88,10 @@ func NewAgent(logger types.Logger, agentType string, agentVersion string) *Agent
 }
 
 func (agent *Agent) start() error {
-	agent.opampClient = client.NewWebSocket(agent.logger)
-
+	//agent.opampClient = client.NewWebSocket(agent.logger)
+	agent.opampClient = client.NewHTTP(agent.logger)
 	settings := types.StartSettings{
-		OpAMPServerURL: "ws://host.minikube.internal:4320/v1/opamp",
+		OpAMPServerURL: "http://host.minikube.internal:3000/v1/opamp",
 		InstanceUid:    agent.instanceId.String(),
 		Callbacks: types.CallbacksStruct{
 			OnConnectFunc: func() {
@@ -303,7 +304,6 @@ func (agent *Agent) onMessage(ctx context.Context, msg *types.MessageData) {
 	if msg.RemoteConfig != nil {
 		var err error
 		configChanged, err = agent.applyRemoteConfig(msg.RemoteConfig)
-		agent.logger.Debugf("Config has changed: %v", configChanged)
 		if err != nil {
 			agent.opampClient.SetRemoteConfigStatus(&protobufs.RemoteConfigStatus{
 				LastRemoteConfigHash: msg.RemoteConfig.ConfigHash,
@@ -312,7 +312,16 @@ func (agent *Agent) onMessage(ctx context.Context, msg *types.MessageData) {
 			})
 		} else {
 			if configChanged {
-				if err = agent.k8sAPIClient.Orchestrate(agent.effectiveConfig); err != nil {
+				//////
+				var byteResult []byte
+				var jsonConfig kube_api.Result
+				byteResult = msg.RemoteConfig.Config.ConfigMap["config_1"].Body
+				err = json.Unmarshal(byteResult, &jsonConfig)
+				if err != nil {
+					fmt.Println("Err Unmarshalling Json:", err)
+				}
+				//////
+				if err = agent.k8sAPIClient.Orchestrate(agent.effectiveConfig, jsonConfig); err != nil {
 					agent.opampClient.SetRemoteConfigStatus(&protobufs.RemoteConfigStatus{
 						LastRemoteConfigHash: msg.RemoteConfig.ConfigHash,
 						Status:               protobufs.RemoteConfigStatus_FAILED,

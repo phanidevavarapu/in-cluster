@@ -12,6 +12,7 @@ package kube_api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	otelv1alpha1 "github.com/open-telemetry/opentelemetry-operator/apis/v1alpha1"
 	apiv1 "k8s.io/api/core/v1"
@@ -23,8 +24,21 @@ import (
 )
 
 type K8sAPIClient interface {
-	Orchestrate(cfg string) error
+	Orchestrate(cfg string, fetchedConfig Result) error
 	GetOtelCollectors() (*otelv1alpha1.OpenTelemetryCollector, error)
+}
+
+type metadata struct {
+	Name string
+}
+type spec struct {
+	Config string
+}
+type Result struct {
+	ApiVersion string   `json:"apiVersion"`
+	Kind       string   `json:"kind"`
+	Metadata   metadata `json:"metadata"`
+	Spec       spec     `json:"spec"`
 }
 
 type client struct {
@@ -53,15 +67,15 @@ func NewClient() K8sAPIClient {
 	}
 }
 
-func (c *client) Orchestrate(cfg string) error {
+func (c *client) Orchestrate(cfg string, fetchedConfig Result) error {
 	deployment, err := c.get()
 	fmt.Println(err)
 	if err != nil {
-		if e := c.create(cfg); e != nil {
+		if e := c.create(cfg, fetchedConfig); e != nil {
 			return e
 		}
 	} else {
-		if e := c.update(deployment, cfg); e != nil {
+		if e := c.update(deployment, cfg, fetchedConfig); e != nil {
 			return e
 		}
 	}
@@ -73,11 +87,14 @@ func (c *client) GetOtelCollectors() (*otelv1alpha1.OpenTelemetryCollector, erro
 	if getErr != nil {
 		panic(fmt.Errorf("failed to get latest version of Deployment: %v", getErr))
 	}
+
+	if len(result.Items) == 0 {
+		return nil, errors.New("no deployment found")
+	}
 	return convertUnstructuredToOtelCollector(&result.Items[0])
 }
 
-func (c *client) create(cfg string) error {
-
+func (c *client) create(cfg string, fetchConfig Result) error {
 	otelCol := &otelv1alpha1.OpenTelemetryCollector{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "OpenTelemetryCollector",
@@ -87,7 +104,7 @@ func (c *client) create(cfg string) error {
 			Name: "hello-world",
 		},
 		Spec: otelv1alpha1.OpenTelemetryCollectorSpec{
-			Config:          cfg,
+			Config:          fetchConfig.Spec.Config,
 			Replicas:        int32Ptr(1),
 			TargetAllocator: otelv1alpha1.OpenTelemetryTargetAllocator{},
 			Mode:            "deployment",
@@ -112,14 +129,14 @@ func (c *client) create(cfg string) error {
 
 func int32Ptr(i int32) *int32 { return &i }
 
-func (c *client) update(deployment *unstructured.Unstructured, cfg string) error {
+func (c *client) update(deployment *unstructured.Unstructured, cfg string, fetchConfig Result) error {
 	fmt.Println("Update Resource")
 	otelCol, err := convertUnstructuredToOtelCollector(deployment)
 	if err != nil {
 		return err
 	}
-	otelCol.Spec.Config = cfg
-
+	//otelCol.Spec.Config = cfg
+	otelCol.Spec.Config = fetchConfig.Spec.Config
 	deploymentUpdate, err := convertOtelCollectorToUnstructured(otelCol)
 	if err != nil {
 		return nil
