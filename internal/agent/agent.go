@@ -64,15 +64,9 @@ func NewAgent(logger types.Logger, agentType string, agentVersion string) *Agent
 		logger:          logger,
 		agentType:       agentType,
 		agentVersion:    agentVersion,
-		k8sAPIClient:    kube_api.NewClient(),
+		k8sAPIClient:    kube_api.NewClient2(),
 	}
-	if otelCol, err := agent.k8sAPIClient.GetOtelCollectors(); err == nil {
-		agent.effectiveConfig = otelCol.Spec.Config
-		logger.Debugf("data: %s", agent.effectiveConfig)
-	} else {
-		logger.Errorf("%v", err)
-	}
-
+	
 	agent.createAgentIdentity()
 	agent.logger.Debugf("Agent starting, id=%v, type=%s, version=%s.",
 		agent.instanceId.String(), agentType, agentVersion)
@@ -90,7 +84,7 @@ func (agent *Agent) start() error {
 	agent.opampClient = client.NewHTTP(agent.logger)
 
 	settings := types.StartSettings{
-		OpAMPServerURL: "http://host.minikube.internal:3000/v1/opamp",
+		OpAMPServerURL: "http://localhost:3000/v1/opamp",
 		InstanceUid:    agent.instanceId.String(),
 		Callbacks: types.CallbacksStruct{
 			OnConnectFunc: func() {
