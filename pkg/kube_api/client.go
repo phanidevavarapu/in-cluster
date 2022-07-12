@@ -12,10 +12,12 @@ package kube_api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"in-cluster/pkg/types"
 	apiv1 "k8s.io/api/core/v1"
+	errs "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -24,11 +26,13 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/homedir"
+	"net/http"
 	"path/filepath"
+	"strings"
 )
 
 type K8sAPIClient interface {
-	Orchestrate(cfg string) error
+	Orchestrate(content []byte, contentType string) error
 }
 
 type client struct {
@@ -76,18 +80,41 @@ func NewClient2() K8sAPIClient {
 	}
 }
 
-func (c *client) Orchestrate(cfg string) error {
-	var appDkube types.AppDKubernetes
-	if err := yaml.Unmarshal([]byte(cfg), &appDkube); err != nil {
-		return err
+func (c *client) Orchestrate(content []byte, contentType string) error {
+	var (
+		appDkube types.AppDKubernetes
+		err      error
+	)
+	// TODO - Just for POC
+	if !strings.Contains(string(content), "opentelemetrycollectors") {
+		content = []byte(strings.ReplaceAll(string(content), `\"`, `"`))
+		content = []byte(strings.ReplaceAll(string(content), `\n`, ``))
+		content = []byte(strings.ReplaceAll(string(content), `"{`, `{`))
+		content = []byte(strings.ReplaceAll(string(content), `}"`, `}`))
 	}
+	switch contentType {
+	case "application/json":
+		if err = json.Unmarshal(content, &appDkube); err != nil {
+			return err
+		}
+	case "application/yaml":
+		if err = yaml.Unmarshal(content, &appDkube); err != nil {
+			return err
+		}
+	}
+	var statusErr *errs.StatusError
 	deployed, err := c.get(&appDkube, appDkube.ResourceInfo.OperationInfo.Name)
-
-	if err != nil {
+	switch {
+	case errors.As(err, &statusErr):
+		if statusErr.Status().Code != http.StatusNotFound {
+			return statusErr
+		}
 		if e := c.create(&appDkube); e != nil {
 			return e
 		}
-	} else {
+	case err != nil:
+		return err
+	default:
 		metaData, e := extractMetadata(deployed)
 		if e != nil {
 			return e
@@ -96,6 +123,7 @@ func (c *client) Orchestrate(cfg string) error {
 			return e
 		}
 	}
+
 	return nil
 }
 
