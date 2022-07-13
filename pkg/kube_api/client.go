@@ -15,6 +15,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"go.uber.org/zap"
 	"in-cluster/pkg/types"
 	apiv1 "k8s.io/api/core/v1"
 	errs "k8s.io/apimachinery/pkg/api/errors"
@@ -37,11 +38,12 @@ type K8sAPIClient interface {
 
 type client struct {
 	cf            *rest.Config
+	logger        *zap.SugaredLogger
 	dynamicClient dynamic.Interface
 }
 
 // NewClient run from a K8s cluster
-func NewClient() K8sAPIClient {
+func NewClient(logger *zap.SugaredLogger) K8sAPIClient {
 	cf, err := rest.InClusterConfig()
 	if err != nil {
 		panic(err)
@@ -52,12 +54,13 @@ func NewClient() K8sAPIClient {
 	}
 	return &client{
 		cf:            cf,
+		logger:        logger,
 		dynamicClient: dynamicClient,
 	}
 }
 
 // NewClient2 run from a Local env
-func NewClient2() K8sAPIClient {
+func NewClient2(logger *zap.SugaredLogger) K8sAPIClient {
 	var kubeconfig *string
 	if home := homedir.HomeDir(); home != "" {
 		kubeconfig = flag.String("kubeconfig1", filepath.Join(home, ".kube", "config"), "(optional) absolute path to the kubeconfig file")
@@ -76,6 +79,7 @@ func NewClient2() K8sAPIClient {
 	}
 	return &client{
 		cf:            cf,
+		logger:        logger,
 		dynamicClient: dynamicClient,
 	}
 }
@@ -134,7 +138,7 @@ func (c *client) create(otelCol *types.AppDKubernetes) error {
 		return err
 	}
 	// Create Deployment
-	fmt.Println("Creating deployment...")
+	c.logger.Debug("Creating deployment...")
 	deploymentRes := schema.GroupVersionResource{
 		Group:    otelCol.ResourceInfo.GroupVersionResource.Group,
 		Version:  otelCol.ResourceInfo.GroupVersionResource.Version,
@@ -146,12 +150,12 @@ func (c *client) create(otelCol *types.AppDKubernetes) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("Created deployment %q.\n", result.GetName())
+	c.logger.Debugf("Created deployment %q.\n", result.GetName())
 	return nil
 }
 
 func (c *client) update(otelCol *types.AppDKubernetes, metadata interface{}) error {
-	fmt.Println("Update Resource")
+	c.logger.Debug("Update Resource")
 	deploymentUpdate, err := convertOtelCollectorToUnstructured(otelCol)
 	if err != nil {
 		return nil
@@ -162,16 +166,16 @@ func (c *client) update(otelCol *types.AppDKubernetes, metadata interface{}) err
 		Version:  otelCol.ResourceInfo.GroupVersionResource.Version,
 		Resource: string(otelCol.ResourceInfo.GroupVersionResource.Resource),
 	}
-	_, err = c.dynamicClient.Resource(deploymentRes).
+	result, err := c.dynamicClient.Resource(deploymentRes).
 		Namespace(apiv1.NamespaceDefault).
 		Update(context.TODO(), deploymentUpdate, metav1.UpdateOptions{})
-	fmt.Println("Updated deployment...")
+	c.logger.Debugf("Updated deployment: %s", result.GetName())
 
 	return err
 }
 
 func (c *client) get(otelCol *types.AppDKubernetes, name string) (*unstructured.Unstructured, error) {
-	fmt.Println("Get Resource")
+	c.logger.Debugf("Get Resource: %s", name)
 	deploymentRes := schema.GroupVersionResource{
 		Group:    otelCol.ResourceInfo.GroupVersionResource.Group,
 		Version:  otelCol.ResourceInfo.GroupVersionResource.Version,

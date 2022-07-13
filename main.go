@@ -13,7 +13,6 @@ import (
 	"flag"
 	"go.uber.org/zap"
 	"in-cluster/internal/agent"
-	"log"
 	"os"
 	"os/signal"
 )
@@ -26,14 +25,8 @@ func main() {
 	flag.StringVar(&agentVersion, "v", "1.0.0", "Agent Version String")
 
 	flag.Parse()
-
-	logger, err := zap.NewDevelopment()
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	sugar := logger.Sugar()
-
+	sugar := zap.NewExample().Sugar()
+	defer sugar.Sync()
 	opamoAgent := agent.NewAgent(sugar, agentType, agentVersion)
 
 	interrupt := make(chan os.Signal, 1)
