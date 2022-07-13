@@ -32,7 +32,7 @@ type KubernetesAPI struct {
 
 // KubernetesApps is placeholder for the Kubernetes Resource apps
 type KubernetesApps struct {
-	DaemonSet   *appsv1.DaemonSet   `json:"daemonSetomitempty"`
+	DaemonSet   *appsv1.DaemonSet   `json:"daemonSet,omitempty"`
 	ReplicaSet  *appsv1.ReplicaSet  `json:"replicaSet,omitempty"`
 	Deployment  *appsv1.Deployment  `json:"deployment,omitempty"`
 	StatefulSet *appsv1.StatefulSet `json:"statefulSet,omitempty"`
