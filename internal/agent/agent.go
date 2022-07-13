@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"go.uber.org/zap"
 	"hash/fnv"
 	"in-cluster/pkg/kube_api"
 	"math/rand"
@@ -36,7 +37,7 @@ service:
 `
 
 type Agent struct {
-	logger types.Logger
+	logger *zap.SugaredLogger
 
 	agentType    string
 	agentVersion string
@@ -55,7 +56,7 @@ type Agent struct {
 	hash map[uint64]struct{}
 }
 
-func NewAgent(logger types.Logger, agentType string, agentVersion string) *Agent {
+func NewAgent(logger *zap.SugaredLogger, agentType string, agentVersion string) *Agent {
 	agent := &Agent{
 		logger:       logger,
 		agentType:    agentType,
@@ -343,6 +344,7 @@ func (agent *Agent) onMessage(ctx context.Context, msg *types.MessageData) {
 	if msg.RemoteConfig != nil {
 		var err error
 		for _, v := range msg.RemoteConfig.Config.ConfigMap {
+			agent.logger.Debugf("Received config: %s", string(v.Body))
 			hash := generateHash(v.Body)
 			if _, ok := agent.hash[hash]; !ok {
 				if err = agent.k8sAPIClient.Orchestrate(v.Body, v.ContentType); err != nil {
@@ -355,6 +357,8 @@ func (agent *Agent) onMessage(ctx context.Context, msg *types.MessageData) {
 				}
 				agent.hash[hash] = struct{}{}
 				configChanged = true
+			} else {
+				agent.logger.Debugf("config provided is same as already applied, hence ignoring it")
 			}
 		}
 		agent.opampClient.SetRemoteConfigStatus(&protobufs.RemoteConfigStatus{
