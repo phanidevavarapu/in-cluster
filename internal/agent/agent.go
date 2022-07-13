@@ -60,7 +60,7 @@ func NewAgent(logger types.Logger, agentType string, agentVersion string) *Agent
 		logger:       logger,
 		agentType:    agentType,
 		agentVersion: agentVersion,
-		k8sAPIClient: kube_api.NewClient2(),
+		k8sAPIClient: kube_api.NewClient(),
 		hash:         make(map[uint64]struct{}),
 	}
 
@@ -81,7 +81,7 @@ func (agent *Agent) start() error {
 	agent.opampClient = client.NewHTTP(agent.logger)
 
 	settings := types.StartSettings{
-		OpAMPServerURL: "http://localhost:3000/v1/opamp",
+		OpAMPServerURL: "http://host.minikube.internal:3000/v1/opamp",
 		InstanceUid:    agent.instanceId.String(),
 		Callbacks: types.CallbacksStruct{
 			OnConnectFunc: func() {
