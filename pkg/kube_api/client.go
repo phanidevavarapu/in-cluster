@@ -13,27 +13,34 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
-	otelv1alpha1 "github.com/open-telemetry/opentelemetry-operator/apis/v1alpha1"
+	"in-cluster/pkg/types"
 	apiv1 "k8s.io/api/core/v1"
+	errs "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/client-go/util/homedir"
+	"net/http"
+	"path/filepath"
+	"strings"
 )
 
 type K8sAPIClient interface {
-	Orchestrate(cfg string) error
-	GetOtelCollectors() (*otelv1alpha1.OpenTelemetryCollector, error)
+	Orchestrate(content []byte, contentType string) error
 }
 
 type client struct {
-	cf       *rest.Config
-	resource dynamic.NamespaceableResourceInterface
+	cf            *rest.Config
+	dynamicClient dynamic.Interface
 }
 
+// NewClient run from a K8s cluster
 func NewClient() K8sAPIClient {
 	cf, err := rest.InClusterConfig()
 	if err != nil {
@@ -43,51 +50,84 @@ func NewClient() K8sAPIClient {
 	if err != nil {
 		panic(err)
 	}
-	deploymentRes := schema.GroupVersionResource{
-		Group:    "opentelemetry.io",
-		Version:  "v1alpha1",
-		Resource: "opentelemetrycollectors",
-	}
 	return &client{
-		cf: cf,
-		resource: dynamicClient.
-			Resource(deploymentRes),
+		cf:            cf,
+		dynamicClient: dynamicClient,
 	}
 }
 
-func (c *client) Orchestrate(cfg string) error {
-	var otleCol otelv1alpha1.OpenTelemetryCollector
-	if err := yaml.Unmarshal([]byte(cfg), &otleCol); err != nil {
-		return err
-	}
-	deployed, err := c.get(otleCol.Name)
-
-	if err != nil {
-		if e := c.create(&otleCol); e != nil {
-			return e
-		}
+// NewClient2 run from a Local env
+func NewClient2() K8sAPIClient {
+	var kubeconfig *string
+	if home := homedir.HomeDir(); home != "" {
+		kubeconfig = flag.String("kubeconfig1", filepath.Join(home, ".kube", "config"), "(optional) absolute path to the kubeconfig file")
 	} else {
-		otelDeployed, _ := convertUnstructuredToOtelCollector(deployed)
-		otleCol.ObjectMeta = otelDeployed.ObjectMeta
-		if e := c.update(&otleCol); e != nil {
+		kubeconfig = flag.String("kubeconfig", "", "absolute path to the kubeconfig file")
+	}
+	flag.Parse()
+
+	cf, err := clientcmd.BuildConfigFromFlags("", *kubeconfig)
+	if err != nil {
+		panic(err)
+	}
+	dynamicClient, err := dynamic.NewForConfig(cf)
+	if err != nil {
+		panic(err)
+	}
+	return &client{
+		cf:            cf,
+		dynamicClient: dynamicClient,
+	}
+}
+
+func (c *client) Orchestrate(content []byte, contentType string) error {
+	var (
+		appDkube types.AppDKubernetes
+		err      error
+	)
+	// TODO - Just for POC
+	if !strings.Contains(string(content), "opentelemetrycollectors") {
+		content = []byte(strings.ReplaceAll(string(content), `\"`, `"`))
+		content = []byte(strings.ReplaceAll(string(content), `\n`, ``))
+		content = []byte(strings.ReplaceAll(string(content), `"{`, `{`))
+		content = []byte(strings.ReplaceAll(string(content), `}"`, `}`))
+	}
+	switch contentType {
+	case "application/json":
+		if err = json.Unmarshal(content, &appDkube); err != nil {
+			return err
+		}
+	case "application/yaml":
+		if err = yaml.Unmarshal(content, &appDkube); err != nil {
+			return err
+		}
+	}
+	var statusErr *errs.StatusError
+	deployed, err := c.get(&appDkube, appDkube.ResourceInfo.OperationInfo.Name)
+	switch {
+	case errors.As(err, &statusErr):
+		if statusErr.Status().Code != http.StatusNotFound {
+			return statusErr
+		}
+		if e := c.create(&appDkube); e != nil {
+			return e
+		}
+	case err != nil:
+		return err
+	default:
+		metaData, e := extractMetadata(deployed)
+		if e != nil {
+			return e
+		}
+		if e = c.update(&appDkube, metaData); e != nil {
 			return e
 		}
 	}
+
 	return nil
 }
 
-func (c *client) GetOtelCollectors() (*otelv1alpha1.OpenTelemetryCollector, error) {
-	result, getErr := c.resource.Namespace(apiv1.NamespaceAll).List(context.TODO(), metav1.ListOptions{})
-	if getErr != nil {
-		panic(fmt.Errorf("failed to get latest version of Deployment: %v", getErr))
-	}
-	if len(result.Items) == 0 {
-		return nil, errors.New("no deployment found")
-	}
-	return convertUnstructuredToOtelCollector(&result.Items[0])
-}
-
-func (c *client) create(otelCol *otelv1alpha1.OpenTelemetryCollector) error {
+func (c *client) create(otelCol *types.AppDKubernetes) error {
 
 	deployment, err := convertOtelCollectorToUnstructured(otelCol)
 	if err != nil {
@@ -95,25 +135,34 @@ func (c *client) create(otelCol *otelv1alpha1.OpenTelemetryCollector) error {
 	}
 	// Create Deployment
 	fmt.Println("Creating deployment...")
-	result, err := c.resource.
+	deploymentRes := schema.GroupVersionResource{
+		Group:    otelCol.ResourceInfo.GroupVersionResource.Group,
+		Version:  otelCol.ResourceInfo.GroupVersionResource.Version,
+		Resource: string(otelCol.ResourceInfo.GroupVersionResource.Resource),
+	}
+	result, err := c.dynamicClient.Resource(deploymentRes).
 		Namespace(apiv1.NamespaceDefault).
 		Create(context.TODO(), deployment, metav1.CreateOptions{})
 	if err != nil {
-		panic(err)
+		return err
 	}
 	fmt.Printf("Created deployment %q.\n", result.GetName())
 	return nil
 }
 
-func int32Ptr(i int32) *int32 { return &i }
-
-func (c *client) update(otelCol *otelv1alpha1.OpenTelemetryCollector) error {
+func (c *client) update(otelCol *types.AppDKubernetes, metadata interface{}) error {
 	fmt.Println("Update Resource")
 	deploymentUpdate, err := convertOtelCollectorToUnstructured(otelCol)
 	if err != nil {
 		return nil
 	}
-	_, err = c.resource.
+	deploymentUpdate.Object["metadata"] = mergeMetadata(deploymentUpdate.Object["metadata"], metadata)
+	deploymentRes := schema.GroupVersionResource{
+		Group:    otelCol.ResourceInfo.GroupVersionResource.Group,
+		Version:  otelCol.ResourceInfo.GroupVersionResource.Version,
+		Resource: string(otelCol.ResourceInfo.GroupVersionResource.Resource),
+	}
+	_, err = c.dynamicClient.Resource(deploymentRes).
 		Namespace(apiv1.NamespaceDefault).
 		Update(context.TODO(), deploymentUpdate, metav1.UpdateOptions{})
 	fmt.Println("Updated deployment...")
@@ -121,20 +170,19 @@ func (c *client) update(otelCol *otelv1alpha1.OpenTelemetryCollector) error {
 	return err
 }
 
-func (c *client) get(name string) (*unstructured.Unstructured, error) {
+func (c *client) get(otelCol *types.AppDKubernetes, name string) (*unstructured.Unstructured, error) {
 	fmt.Println("Get Resource")
-	options := metav1.GetOptions{
-		TypeMeta: metav1.TypeMeta{
-			Kind:       "OpenTelemetryCollector",
-			APIVersion: "opentelemetry.io/v1alpha1",
-		},
+	deploymentRes := schema.GroupVersionResource{
+		Group:    otelCol.ResourceInfo.GroupVersionResource.Group,
+		Version:  otelCol.ResourceInfo.GroupVersionResource.Version,
+		Resource: string(otelCol.ResourceInfo.GroupVersionResource.Resource),
 	}
-	return c.resource.Namespace(apiv1.NamespaceDefault).Get(context.TODO(), name, options)
+	return c.dynamicClient.Resource(deploymentRes).Namespace(apiv1.NamespaceDefault).Get(context.TODO(), name, metav1.GetOptions{})
 }
 
-func convertOtelCollectorToUnstructured(otelCol *otelv1alpha1.OpenTelemetryCollector) (*unstructured.Unstructured, error) {
+func convertOtelCollectorToUnstructured(otelCol *types.AppDKubernetes) (*unstructured.Unstructured, error) {
 	var myMap map[string]interface{}
-	data, err := json.Marshal(otelCol)
+	data, err := otelCol.MarshalResourceJSON()
 	if err != nil {
 		return nil, err
 	}
@@ -146,14 +194,21 @@ func convertOtelCollectorToUnstructured(otelCol *otelv1alpha1.OpenTelemetryColle
 	}, nil
 }
 
-func convertUnstructuredToOtelCollector(deployment *unstructured.Unstructured) (*otelv1alpha1.OpenTelemetryCollector, error) {
-	data, err := json.Marshal(deployment.Object)
-	if err != nil {
-		return nil, err
+func extractMetadata(deployment *unstructured.Unstructured) (interface{}, error) {
+	data, ok := deployment.Object["metadata"]
+	if !ok {
+		return nil, fmt.Errorf("metadata not found")
 	}
-	otelCol := &otelv1alpha1.OpenTelemetryCollector{}
-	if err = json.Unmarshal(data, otelCol); err != nil {
-		return nil, err
+	return data, nil
+}
+
+func mergeMetadata(current, deployed interface{}) interface{} {
+	currentMap := current.(map[string]interface{})
+	deployedMap := deployed.(map[string]interface{})
+	for k, v := range currentMap {
+		if v != nil {
+			deployedMap[k] = v
+		}
 	}
-	return otelCol, nil
+	return deployedMap
 }

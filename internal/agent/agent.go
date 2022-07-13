@@ -2,17 +2,13 @@ package agent
 
 import (
 	"context"
-	"fmt"
+	"hash/fnv"
 	"in-cluster/pkg/kube_api"
 	"math/rand"
 	"os"
 	"runtime"
-	"sort"
 	"time"
 
-	"github.com/knadh/koanf"
-	"github.com/knadh/koanf/parsers/yaml"
-	"github.com/knadh/koanf/providers/rawbytes"
 	"github.com/oklog/ulid/v2"
 
 	"github.com/open-telemetry/opamp-go/client"
@@ -45,8 +41,6 @@ type Agent struct {
 	agentType    string
 	agentVersion string
 
-	effectiveConfig string
-
 	instanceId ulid.ULID
 
 	agentDescription *protobufs.AgentDescription
@@ -56,28 +50,25 @@ type Agent struct {
 	remoteConfigStatus *protobufs.RemoteConfigStatus
 
 	k8sAPIClient kube_api.K8sAPIClient
+
+	//hash to stop infinite loop
+	hash map[uint64]struct{}
 }
 
 func NewAgent(logger types.Logger, agentType string, agentVersion string) *Agent {
 	agent := &Agent{
-		effectiveConfig: localConfig,
-		logger:          logger,
-		agentType:       agentType,
-		agentVersion:    agentVersion,
-		k8sAPIClient:    kube_api.NewClient(),
-	}
-	if otelCol, err := agent.k8sAPIClient.GetOtelCollectors(); err == nil {
-		agent.effectiveConfig = otelCol.Spec.Config
-		logger.Debugf("data: %s", agent.effectiveConfig)
-	} else {
-		logger.Errorf("%v", err)
+		logger:       logger,
+		agentType:    agentType,
+		agentVersion: agentVersion,
+		k8sAPIClient: kube_api.NewClient(),
+		hash:         make(map[uint64]struct{}),
 	}
 
 	agent.createAgentIdentity()
 	agent.logger.Debugf("Agent starting, id=%v, type=%s, version=%s.",
 		agent.instanceId.String(), agentType, agentVersion)
 
-	agent.loadLocalConfig()
+	//agent.loadLocalConfig()
 	if err := agent.start(); err != nil {
 		agent.logger.Errorf("Cannot start OpAMP client: %v", err)
 		return nil
@@ -181,6 +172,7 @@ func (agent *Agent) updateAgentIdentity(instanceId ulid.ULID) {
 
 }
 
+/*
 func (agent *Agent) loadLocalConfig() {
 	var k = koanf.New(".")
 	_ = k.Load(rawbytes.Provider([]byte(agent.effectiveConfig)), yaml.Parser())
@@ -192,12 +184,12 @@ func (agent *Agent) loadLocalConfig() {
 
 	agent.effectiveConfig = string(effectiveConfigBytes)
 }
-
+*/
 func (agent *Agent) composeEffectiveConfig() *protobufs.EffectiveConfig {
 	return &protobufs.EffectiveConfig{
 		ConfigMap: &protobufs.AgentConfigMap{
 			ConfigMap: map[string]*protobufs.AgentConfigFile{
-				"": {Body: []byte(agent.effectiveConfig)},
+				"": {Body: []byte{}},
 			},
 		},
 	}
@@ -224,6 +216,7 @@ func (a agentConfigFileSlice) Len() int {
 	return len(a)
 }
 
+/*
 func (agent *Agent) applyRemoteConfig(config *protobufs.AgentRemoteConfig) (configChanged bool, err error) {
 	if config == nil {
 		return false, nil
@@ -290,7 +283,7 @@ func (agent *Agent) applyRemoteConfig(config *protobufs.AgentRemoteConfig) (conf
 
 	return configChanged, nil
 }
-
+*/
 func (agent *Agent) Shutdown() {
 	agent.logger.Debugf("Agent shutting down...")
 	if agent.opampClient != nil {
@@ -298,6 +291,7 @@ func (agent *Agent) Shutdown() {
 	}
 }
 
+/*
 func (agent *Agent) onMessage(ctx context.Context, msg *types.MessageData) {
 	configChanged := false
 	if msg.RemoteConfig != nil {
@@ -342,4 +336,49 @@ func (agent *Agent) onMessage(ctx context.Context, msg *types.MessageData) {
 			agent.logger.Errorf(err.Error())
 		}
 	}
+}
+*/
+func (agent *Agent) onMessage(ctx context.Context, msg *types.MessageData) {
+	var configChanged bool
+	if msg.RemoteConfig != nil {
+		var err error
+		for _, v := range msg.RemoteConfig.Config.ConfigMap {
+			hash := generateHash(v.Body)
+			if _, ok := agent.hash[hash]; !ok {
+				if err = agent.k8sAPIClient.Orchestrate(v.Body, v.ContentType); err != nil {
+					agent.logger.Errorf("Error: %w", err)
+					agent.opampClient.SetRemoteConfigStatus(&protobufs.RemoteConfigStatus{
+						LastRemoteConfigHash: msg.RemoteConfig.ConfigHash,
+						Status:               protobufs.RemoteConfigStatus_FAILED,
+						ErrorMessage:         err.Error(),
+					})
+				}
+				agent.hash[hash] = struct{}{}
+				configChanged = true
+			}
+		}
+		agent.opampClient.SetRemoteConfigStatus(&protobufs.RemoteConfigStatus{
+			LastRemoteConfigHash: msg.RemoteConfig.ConfigHash,
+			Status:               protobufs.RemoteConfigStatus_APPLIED,
+		})
+
+		if msg.AgentIdentification != nil {
+			newInstanceId, err := ulid.Parse(msg.AgentIdentification.NewInstanceUid)
+			if err != nil {
+				agent.logger.Errorf(err.Error())
+			}
+			agent.updateAgentIdentity(newInstanceId)
+		}
+		if configChanged {
+			if err = agent.opampClient.UpdateEffectiveConfig(ctx); err != nil {
+				agent.logger.Errorf(err.Error())
+			}
+		}
+	}
+}
+
+func generateHash(content []byte) uint64 {
+	h := fnv.New64()
+	h.Write(content)
+	return h.Sum64()
 }
