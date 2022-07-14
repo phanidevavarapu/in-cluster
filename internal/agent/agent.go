@@ -79,10 +79,10 @@ func NewAgent(logger *zap.SugaredLogger, agentType string, agentVersion string) 
 }
 
 func (agent *Agent) start() error {
-	agent.opampClient = client.NewHTTP(agent.logger)
+	agent.opampClient = client.NewWebSocket(agent.logger)
 
 	settings := types.StartSettings{
-		OpAMPServerURL: "http://host.minikube.internal:3000/v1/opamp",
+		OpAMPServerURL: "ws://host.minikube.internal:4320/v1/opamp",
 		InstanceUid:    agent.instanceId.String(),
 		Callbacks: types.CallbacksStruct{
 			OnConnectFunc: func() {
