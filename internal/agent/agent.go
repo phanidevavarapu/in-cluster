@@ -61,7 +61,7 @@ func NewAgent(logger *zap.SugaredLogger, agentType string, agentVersion string) 
 		logger:       logger,
 		agentType:    agentType,
 		agentVersion: agentVersion,
-		k8sAPIClient: kube_api.NewClient(),
+		k8sAPIClient: kube_api.NewClient(logger),
 		hash:         make(map[uint64]struct{}),
 	}
 
