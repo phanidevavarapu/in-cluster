@@ -90,12 +90,6 @@ func (c *client) Orchestrate(content []byte, contentType string) error {
 		err      error
 	)
 	// TODO - Just for POC
-	if !strings.Contains(string(content), "opentelemetrycollectors") {
-		content = []byte(strings.ReplaceAll(string(content), `\"`, `"`))
-		content = []byte(strings.ReplaceAll(string(content), `\n`, ``))
-		content = []byte(strings.ReplaceAll(string(content), `"{`, `{`))
-		content = []byte(strings.ReplaceAll(string(content), `}"`, `}`))
-	}
 	switch contentType {
 	case "application/json":
 		if err = json.Unmarshal(content, &appDkube); err != nil {
