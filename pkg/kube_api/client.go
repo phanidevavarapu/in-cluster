@@ -29,7 +29,6 @@ import (
 	"k8s.io/client-go/util/homedir"
 	"net/http"
 	"path/filepath"
-	"strings"
 )
 
 type K8sAPIClient interface {

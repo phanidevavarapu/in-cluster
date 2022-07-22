@@ -19,7 +19,7 @@ spec:
       serviceAccountName: opentelemetry-operator-controller-manager
       containers:
         - name: inspect
-          image: opampclient:v1
+          image: opampclient:v2
           imagePullPolicy: Never
           livenessProbe:
             exec:
